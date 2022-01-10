@@ -218,13 +218,13 @@ public:
 	Coordinates GetCursorPosition() const { return GetActualCursorCoordinates(); }
 	void SetCursorPosition(const Coordinates& aPosition);
 
-	inline void SetHandleMouseInputs    (bool aValue){ mHandleMouseInputs    = aValue;}
-	inline bool IsHandleMouseInputsEnabled() const { return mHandleKeyboardInputs; }
+	inline void SetHandleMouseInputs(bool aValue){ mHandleMouseInputs = aValue;}
+	inline bool IsHandleMouseInputsEnabled() const { return mHandleMouseInputs; }
 
 	inline void SetHandleKeyboardInputs (bool aValue){ mHandleKeyboardInputs = aValue;}
 	inline bool IsHandleKeyboardInputsEnabled() const { return mHandleKeyboardInputs; }
 
-	inline void SetImGuiChildIgnored    (bool aValue){ mIgnoreImGuiChild     = aValue;}
+	inline void SetImGuiChildIgnored(bool aValue){ mIgnoreImGuiChild = aValue;}
 	inline bool IsImGuiChildIgnored() const { return mIgnoreImGuiChild; }
 
 	inline void SetShowWhitespaces(bool aValue) { mShowWhitespaces = aValue; }
