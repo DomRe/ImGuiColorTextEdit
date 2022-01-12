@@ -262,6 +262,8 @@ public:
 
 	bool CanUndo() const;
 	bool CanRedo() const;
+	int GetUndoCount() const;
+	int GetRedoCount() const;
 	void Undo(int aSteps = 1);
 	void Redo(int aSteps = 1);
 

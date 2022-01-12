@@ -2035,6 +2035,16 @@ bool TextEditor::CanRedo() const
 	return !mReadOnly && mUndoIndex < (int)mUndoBuffer.size();
 }
 
+int TextEditor::GetUndoCount() const
+{
+	return mUndoIndex;
+}
+
+int TextEditor::GetRedoCount() const
+{
+	return (int)mUndoBuffer.size() - mUndoIndex;
+}
+
 void TextEditor::Undo(int aSteps)
 {
 	while (CanUndo() && aSteps-- > 0)
