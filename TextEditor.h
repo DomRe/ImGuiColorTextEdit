@@ -31,6 +31,7 @@ public:
 		Cursor,
 		Selection,
 		ErrorMarker,
+		BracketHighlighting,
 		Breakpoint,
 		LineNumber,
 		CurrentLineFill,
@@ -215,6 +216,7 @@ public:
 	bool IsColorizerEnabled() const { return mColorizerEnabled; }
 	void SetColorizerEnable(bool aValue);
 
+	Coordinates GetCorrectCursorPosition();
 	Coordinates GetCursorPosition() const { return GetActualCursorCoordinates(); }
 	void SetCursorPosition(const Coordinates& aPosition);
 
@@ -272,6 +274,7 @@ public:
 	static const Palette& GetRetroBluePalette();
 
 	inline void SetCompleteBraces(bool s) { mCompleteBraces = s; }
+	inline void SetHiglightBrackets(bool s) { mHighlightBrackets = s; }
 
 private:
 	typedef std::vector<std::pair<std::regex, PaletteIndex>> RegexList;
@@ -397,4 +400,5 @@ private:
 
 	bool mCompleteBraces;
 	ImWchar mInsertedBrace;
+	bool mHighlightBrackets;
 };
