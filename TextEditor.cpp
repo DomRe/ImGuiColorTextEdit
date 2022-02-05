@@ -328,10 +328,8 @@ TextEditor::Coordinates TextEditor::ScreenPosToCoordinates(const ImVec2& aPositi
 {
 	ImVec2 origin = ImGui::GetCursorScreenPos();
 	ImVec2 local(aPosition.x - origin.x + 3.0f, aPosition.y - origin.y);
-	float spaceSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, " ").x;
 
 	int lineNo = std::max(0, (int)floor(local.y / mCharAdvance.y));
-
 	int columnCoord = 0;
 
 	if (lineNo >= 0 && lineNo < (int)mLines.size())
@@ -339,21 +337,23 @@ TextEditor::Coordinates TextEditor::ScreenPosToCoordinates(const ImVec2& aPositi
 		auto& line = mLines.at(lineNo);
 
 		int columnIndex = 0;
-		std::string cumulatedString = "";
-		float columnWidth = 0.0f;
 		float columnX = 0.0f;
-		int delta = 0;
 
-		// First we find the hovered column coord.
-		while (mTextStart + columnX - (aInsertionMode ? 0.5f : 0.0f) * columnWidth < local.x && (size_t)columnIndex < line.size())
+		while ((size_t)columnIndex < line.size())
 		{
-			columnCoord += delta;
+			float columnWidth = 0.0f;
+
 			if (line[columnIndex].mChar == '\t')
 			{
+				float spaceSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, " ").x;
 				float oldX = columnX;
-				columnX = (1.0f + std::floor((1.0f + columnX) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
-				columnWidth = columnX - oldX;
-				delta = columnCoord - (columnCoord / mTabSize) * mTabSize + mTabSize;
+				float newColumnX = (1.0f + std::floor((1.0f + columnX) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
+				columnWidth = newColumnX - oldX;
+				if (mTextStart + columnX + columnWidth * 0.5f > local.x)
+					break;
+				columnX = newColumnX;
+				columnCoord = (columnCoord / mTabSize) * mTabSize + mTabSize;
+				columnIndex++;
 			}
 			else
 			{
@@ -361,20 +361,15 @@ TextEditor::Coordinates TextEditor::ScreenPosToCoordinates(const ImVec2& aPositi
 				auto d = UTF8CharLength(line[columnIndex].mChar);
 				int i = 0;
 				while (i < 6 && d-- > 0)
-					buf[i++] = line[columnIndex].mChar;
+					buf[i++] = line[columnIndex++].mChar;
 				buf[i] = '\0';
 				columnWidth = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf).x;
 				if (mTextStart + columnX + columnWidth * 0.5f > local.x)
 					break;
 				columnX += columnWidth;
-				delta = 1;
+				columnCoord++;
 			}
-			++columnIndex;
 		}
-
-		// Then we reduce by 1 column coord if cursor is on the left side of the hovered column.
-		//if (aInsertionMode && mTextStart + columnX - columnWidth * 2.0f < local.x)
-		//	columnIndex = std::min((int)line.size() - 1, columnIndex + 1);
 	}
 
 	return SanitizeCoordinates(Coordinates(lineNo, columnCoord));
