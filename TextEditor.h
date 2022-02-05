@@ -271,6 +271,8 @@ public:
 	static const Palette& GetLightPalette();
 	static const Palette& GetRetroBluePalette();
 
+	inline void SetCompleteBraces(bool s) { mCompleteBraces = s; }
+
 private:
 	typedef std::vector<std::pair<std::regex, PaletteIndex>> RegexList;
 
@@ -392,4 +394,7 @@ private:
 	uint64_t mStartTime;
 
 	float mLastClick;
+
+	bool mCompleteBraces;
+	ImWchar mInsertedBrace;
 };

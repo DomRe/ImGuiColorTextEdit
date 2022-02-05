@@ -49,6 +49,8 @@ TextEditor::TextEditor()
 	, mShowShortTabGlyphs(false)
 	, mStartTime(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
 	, mLastClick(-1.0f)
+	, mCompleteBraces(true)
+	, mInsertedBrace(0)
 {
 	SetPalette(GetDarkPalette());
 	SetLanguageDefinition(LanguageDefinition::HLSL());
@@ -1362,15 +1364,40 @@ void TextEditor::EnterCharacter(ImWchar aChar, bool aShift)
 
 	assert(!mLines.empty());
 
+	// auto brace completion
+	if (mInsertedBrace) {
+		if ((aChar == '}' && mInsertedBrace == '{') ||
+			(aChar == ')' && mInsertedBrace == '(') ||
+			(aChar == ']' && mInsertedBrace == '[')) {
+			mInsertedBrace = 0;
+			return;
+		}
+
+		mInsertedBrace = 0;
+	}
+
+	bool insertEmptyLineOnBrace = false;
+
 	if (aChar == '\n')
 	{
 		InsertLine(coord.mLine + 1);
 		auto& line = mLines[coord.mLine];
 		auto& newLine = mLines[coord.mLine + 1];
 
-		if (mLanguageDefinition.mAutoIndentation)
+		if (mLanguageDefinition.mAutoIndentation) {
 			for (size_t it = 0; it < line.size() && isascii(line[it].mChar) && isblank(line[it].mChar); ++it)
 				newLine.push_back(line[it]);
+
+			if (coord.mColumn > 0 && coord.mColumn < GetLineMaxColumn(coord.mLine)) {
+				auto brackets = GetText(
+					Coordinates(coord.mLine, coord.mColumn - 1),
+					Coordinates(coord.mLine, coord.mColumn + 1));
+
+				if (brackets == "{}" || brackets == "()" || brackets == "[]") {
+					insertEmptyLineOnBrace = true;
+				}
+			}
+		}
 
 		const size_t whitespaceSize = newLine.size();
 		auto cindex = GetCharacterIndex(coord);
@@ -1422,6 +1449,25 @@ void TextEditor::EnterCharacter(ImWchar aChar, bool aShift)
 
 	Colorize(coord.mLine - 1, 3);
 	EnsureCursorVisible();
+
+	// auto brace completion
+	if (mCompleteBraces) {
+		if (aChar == '{') EnterCharacter('}', false);
+		else if (aChar == '(') EnterCharacter(')', false);
+		else if (aChar == '[') EnterCharacter(']', false);
+
+		if (aChar == '{' || aChar == '(' || aChar == '[') {
+			mState.mCursorPosition.mColumn--;
+			mInsertedBrace = aChar;
+		}
+	}
+
+	if (insertEmptyLineOnBrace) {
+		auto pos = mState.mCursorPosition;
+		EnterCharacter('\n', true);
+		mState.mCursorPosition = pos;
+		EnterCharacter('\t', false);
+	}
 }
 
 void TextEditor::SetReadOnly(bool aValue)
