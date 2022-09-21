@@ -120,6 +120,11 @@ public:
 				return mLine > o.mLine;
 			return mColumn >= o.mColumn;
 		}
+
+		Coordinates operator -(const Coordinates& o)
+		{
+			return Coordinates(mLine - o.mLine, mColumn - o.mColumn);
+		}
 	};
 
 	struct Identifier
@@ -262,7 +267,7 @@ public:
 	void Copy();
 	void Cut();
 	void Paste();
-	void Delete();
+	void Delete(bool aWordMode = false);
 
 	bool CanUndo() const;
 	bool CanRedo() const;
@@ -350,7 +355,7 @@ private:
 	void RemoveLine(int aIndex);
 	Line& InsertLine(int aIndex);
 	void EnterCharacter(ImWchar aChar, bool aShift);
-	void Backspace();
+	void Backspace(bool aWordMode = false);
 	void DeleteSelection();
 	std::string GetWordUnderCursor() const;
 	std::string GetWordAt(const Coordinates& aCoords) const;
