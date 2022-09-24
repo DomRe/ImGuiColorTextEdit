@@ -1844,7 +1844,7 @@ void TextEditor::MoveRight(int aAmount, bool aSelect, bool aWordMode)
 			cindex += UTF8CharLength(line[cindex].mChar);
 			mState.mCursorPosition = Coordinates(lindex, GetCharacterColumn(lindex, cindex));
 			if (aWordMode)
-				mState.mCursorPosition = FindNextWord(mState.mCursorPosition);
+				mState.mCursorPosition = FindWordEnd(mState.mCursorPosition);
 		}
 	}
 
