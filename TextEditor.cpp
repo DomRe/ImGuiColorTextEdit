@@ -1707,6 +1707,8 @@ void TextEditor::DeleteSelection()
 
 	SetSelection(mState.mSelectionStart, mState.mSelectionStart);
 	SetCursorPosition(mState.mSelectionStart);
+	mInteractiveStart = mState.mSelectionStart;
+	mInteractiveEnd = mState.mSelectionEnd;
 	Colorize(mState.mSelectionStart.mLine, 1);
 }
 
