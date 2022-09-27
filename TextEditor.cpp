@@ -2547,11 +2547,19 @@ void TextEditor::ColorizeInternal()
 							commentStartLine = currentLine;
 							commentStartIndex = currentIndex;
 						}
-						else if (singleStartStr.size() > 0 &&
+						
+						if (singleStartStr.size() > 0 &&
 							currentIndex + singleStartStr.size() <= line.size() &&
 							equals(singleStartStr.begin(), singleStartStr.end(), from, from + singleStartStr.size(), pred))
 						{
-							withinSingleLineComment = true;
+							if (currentIndex + startStr.size() > line.size())
+							{
+								withinSingleLineComment = true;
+							}
+							else if (!equals(startStr.begin(), startStr.end(), from, from + startStr.size(), pred))
+							{
+								withinSingleLineComment = true;
+							}
 						}
 
 						inComment = (commentStartLine < currentLine || (commentStartLine == currentLine && commentStartIndex <= currentIndex));
