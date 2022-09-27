@@ -1258,7 +1258,7 @@ void TextEditor::Render()
 		}
 	}
 
-
+	ImGui::SetCursorPos(ImVec2(0, 0));
 	ImGui::Dummy(ImVec2((longest + 2), mLines.size() * mCharAdvance.y));
 
 	if (mScrollToCursor)
