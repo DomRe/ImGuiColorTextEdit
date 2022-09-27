@@ -24,6 +24,22 @@ bool equals(InputIt1 first1, InputIt1 last1,
 	return first1 == last1 && first2 == last2;
 }
 
+int isBracket(char ch) {
+	if (ch == '(' || ch == '[' || ch == '{')
+		return 1;
+	if (ch == ')' || ch == ']' || ch == '}')
+		return 2;
+	return 0;
+}
+bool isClosingBracket(char open, char actual)
+{
+	return (open == '{' && actual == '}') || (open == '[' && actual == ']') || (open == '(' && actual == ')');
+}
+bool isOpeningBracket(char close, char actual)
+{
+	return (close == '}' && actual == '{') || (close == ']' && actual == '[') || (close == ')' && actual == '(');
+}
+
 TextEditor::TextEditor()
 	: mLineSpacing(1.0f)
 	, mUndoIndex(0)
@@ -42,13 +58,16 @@ TextEditor::TextEditor()
 	, mColorRangeMax(0)
 	, mSelectionMode(SelectionMode::Normal)
 	, mCheckComments(true)
-	, mLastClick(-1.0f)
 	, mHandleKeyboardInputs(true)
 	, mHandleMouseInputs(true)
 	, mIgnoreImGuiChild(false)
 	, mShowWhitespaces(true)
 	, mShowShortTabGlyphs(false)
 	, mStartTime(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count())
+	, mLastClick(-1.0f)
+	, mCompleteBraces(true)
+	, mInsertedBrace(0)
+	, mHighlightBrackets(true)
 {
 	SetPalette(GetDarkPalette());
 	SetLanguageDefinition(LanguageDefinition::HLSL());
@@ -110,6 +129,20 @@ std::string TextEditor::GetText(const Coordinates & aStart, const Coordinates & 
 	}
 
 	return result;
+}
+
+TextEditor::Coordinates TextEditor::GetCorrectCursorPosition()
+{
+	auto curPos = GetCursorPosition();
+
+	if (curPos.mLine >= 0 && curPos.mLine <= GetCursorPosition().mLine) {
+		for (int c = 0; c < std::min<int>(curPos.mLine, mLines[curPos.mLine].size()); c++) {
+			if (mLines[curPos.mLine][c].mChar == '\t')
+				curPos.mColumn -= (GetTabSize() - 1);
+		}
+	}
+
+	return curPos;
 }
 
 TextEditor::Coordinates TextEditor::GetActualCursorCoordinates() const
@@ -326,10 +359,8 @@ TextEditor::Coordinates TextEditor::ScreenPosToCoordinates(const ImVec2& aPositi
 {
 	ImVec2 origin = ImGui::GetCursorScreenPos();
 	ImVec2 local(aPosition.x - origin.x + 3.0f, aPosition.y - origin.y);
-	float spaceSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, " ").x;
 
 	int lineNo = std::max(0, (int)floor(local.y / mCharAdvance.y));
-
 	int columnCoord = 0;
 
 	if (lineNo >= 0 && lineNo < (int)mLines.size())
@@ -337,21 +368,23 @@ TextEditor::Coordinates TextEditor::ScreenPosToCoordinates(const ImVec2& aPositi
 		auto& line = mLines.at(lineNo);
 
 		int columnIndex = 0;
-		std::string cumulatedString = "";
-		float columnWidth = 0.0f;
 		float columnX = 0.0f;
-		int delta = 0;
 
-		// First we find the hovered column coord.
-		while (mTextStart + columnX - (aInsertionMode ? 0.5f : 0.0f) * columnWidth < local.x && (size_t)columnIndex < line.size())
+		while ((size_t)columnIndex < line.size())
 		{
-			columnCoord += delta;
+			float columnWidth = 0.0f;
+
 			if (line[columnIndex].mChar == '\t')
 			{
+				float spaceSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, " ").x;
 				float oldX = columnX;
-				columnX = (1.0f + std::floor((1.0f + columnX) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
-				columnWidth = columnX - oldX;
-				delta = columnCoord - (columnCoord / mTabSize) * mTabSize + mTabSize;
+				float newColumnX = (1.0f + std::floor((1.0f + columnX) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
+				columnWidth = newColumnX - oldX;
+				if (mTextStart + columnX + columnWidth * 0.5f > local.x)
+					break;
+				columnX = newColumnX;
+				columnCoord = (columnCoord / mTabSize) * mTabSize + mTabSize;
+				columnIndex++;
 			}
 			else
 			{
@@ -359,18 +392,15 @@ TextEditor::Coordinates TextEditor::ScreenPosToCoordinates(const ImVec2& aPositi
 				auto d = UTF8CharLength(line[columnIndex].mChar);
 				int i = 0;
 				while (i < 6 && d-- > 0)
-					buf[i++] = line[columnIndex].mChar;
+					buf[i++] = line[columnIndex++].mChar;
 				buf[i] = '\0';
 				columnWidth = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf).x;
+				if (mTextStart + columnX + columnWidth * 0.5f > local.x)
+					break;
 				columnX += columnWidth;
-				delta = 1;
+				columnCoord++;
 			}
-			++columnIndex;
 		}
-
-		// Then we reduce by 1 column coord if cursor is on the left side of the hovered column.
-		//if (aInsertionMode && mTextStart + columnX - columnWidth * 2.0f < local.x)
-		//	columnIndex = std::min((int)line.size() - 1, columnIndex + 1);
 	}
 
 	return SanitizeCoordinates(Coordinates(lineNo, columnCoord));
@@ -812,7 +842,7 @@ void TextEditor::HandleMouseInputs()
 			{
 				if (!ctrl)
 				{
-					mState.mCursorPosition = mInteractiveStart = mInteractiveEnd = SanitizeCoordinates(ScreenPosToCoordinates(ImGui::GetMousePos()));
+					mState.mCursorPosition = mInteractiveStart = mInteractiveEnd = ScreenPosToCoordinates(ImGui::GetMousePos());
 					mSelectionMode = SelectionMode::Line;
 					SetSelection(mInteractiveStart, mInteractiveEnd, mSelectionMode);
 				}
@@ -828,7 +858,7 @@ void TextEditor::HandleMouseInputs()
 			{
 				if (!ctrl)
 				{
-					mState.mCursorPosition = mInteractiveStart = mInteractiveEnd = SanitizeCoordinates(ScreenPosToCoordinates(ImGui::GetMousePos()));
+					mState.mCursorPosition = mInteractiveStart = mInteractiveEnd = ScreenPosToCoordinates(ImGui::GetMousePos());
 					if (mSelectionMode == SelectionMode::Line)
 						mSelectionMode = SelectionMode::Normal;
 					else
@@ -905,6 +935,80 @@ void TextEditor::Render()
 
 	if (!mLines.empty())
 	{
+		bool highlightBrackets = false;
+		Coordinates highlightStart = GetCorrectCursorPosition();
+		highlightStart.mColumn--;
+		Coordinates highlightEnd = highlightStart;
+
+		if (mHighlightBrackets &&
+			mState.mSelectionStart == mState.mSelectionEnd &&
+			mLines[highlightStart.mLine].size() &&
+			highlightStart.mLine >= 0 &&
+			highlightStart.mLine <= mLines.size() &&
+			highlightStart.mColumn >= 0 &&
+			highlightStart.mColumn <= mLines[highlightStart.mLine].size())
+		{
+			char search = mLines[highlightStart.mLine][highlightStart.mColumn].mChar;
+			int bracket = isBracket(search);
+			int weight = 0;
+
+			if (bracket) {
+				// go forward
+				if (bracket == 1) {
+					while (!highlightBrackets && highlightEnd.mLine < mLines.size()) {
+						while (!highlightBrackets && highlightEnd.mColumn < mLines[highlightEnd.mLine].size()) {
+							char curChar = mLines[highlightEnd.mLine][highlightEnd.mColumn].mChar;
+
+							if (curChar == search) {
+								weight++;
+
+							} else if (isClosingBracket(search, curChar)) {
+								if (--weight == 0) {
+									highlightBrackets = true;
+								}
+							}
+
+							if (!highlightBrackets) {
+								highlightEnd.mColumn++;
+							}
+						}
+
+						if (!highlightBrackets) {
+							highlightEnd.mLine++;
+							highlightEnd.mColumn = 0;
+						}
+					}
+				// go backwards
+				} else {
+					while (!highlightBrackets && highlightStart.mLine >= 0) {
+						while (!highlightBrackets && highlightStart.mColumn >= 0) {
+							char curChar = mLines[highlightStart.mLine][highlightStart.mColumn].mChar;
+
+							if (curChar == search) {
+								weight++;
+
+							} else if (isOpeningBracket(search, curChar)) {
+								if (--weight == 0) {
+									highlightBrackets = true;
+								}
+							}
+
+							if (!highlightBrackets) {
+								highlightStart.mColumn--;
+							}
+						}
+
+						if (!highlightBrackets) {
+							highlightStart.mLine--;
+
+							if (highlightStart.mLine >= 0)
+								highlightStart.mColumn = mLines[highlightStart.mLine].size() - 1;
+						}
+					}
+				}
+			}
+		}
+
 		float spaceSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, " ", nullptr, nullptr).x;
 
 		while (lineNo <= lineMax)
@@ -974,52 +1078,12 @@ void TextEditor::Render()
 			auto lineNoWidth = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf, nullptr, nullptr).x;
 			drawList->AddText(ImVec2(lineStartScreenPos.x + mTextStart - lineNoWidth, lineStartScreenPos.y), mPalette[(int)PaletteIndex::LineNumber], buf);
 
-			if (mState.mCursorPosition.mLine == lineNo)
+			if (mState.mCursorPosition.mLine == lineNo && !HasSelection())
 			{
-				auto focused = ImGui::IsWindowFocused();
-
 				// Highlight the current line (where the cursor is)
-				if (!HasSelection())
-				{
-					auto end = ImVec2(start.x + contentSize.x + scrollX, start.y + mCharAdvance.y);
-					drawList->AddRectFilled(start, end, mPalette[(int)(focused ? PaletteIndex::CurrentLineFill : PaletteIndex::CurrentLineFillInactive)]);
-					drawList->AddRect(start, end, mPalette[(int)PaletteIndex::CurrentLineEdge], 1.0f);
-				}
-
-				// Render the cursor
-				if (focused)
-				{
-					auto timeEnd = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-					auto elapsed = timeEnd - mStartTime;
-					if (elapsed > 400)
-					{
-						float width = 1.0f;
-						auto cindex = GetCharacterIndex(mState.mCursorPosition);
-						float cx = TextDistanceToLineStart(mState.mCursorPosition);
-
-						if (mOverwrite && cindex < (int)line.size())
-						{
-							auto c = line[cindex].mChar;
-							if (c == '\t')
-							{
-								auto x = (1.0f + std::floor((1.0f + cx) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
-								width = x - cx;
-							}
-							else
-							{
-								char buf2[2];
-								buf2[0] = line[cindex].mChar;
-								buf2[1] = '\0';
-								width = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf2).x;
-							}
-						}
-						ImVec2 cstart(textScreenPos.x + cx, lineStartScreenPos.y);
-						ImVec2 cend(textScreenPos.x + cx + width, lineStartScreenPos.y + mCharAdvance.y);
-						drawList->AddRectFilled(cstart, cend, mPalette[(int)PaletteIndex::Cursor]);
-						if (elapsed > 800)
-							mStartTime = timeEnd;
-					}
-				}
+				auto end = ImVec2(start.x + contentSize.x + scrollX, start.y + mCharAdvance.y);
+				drawList->AddRectFilled(start, end, mPalette[(int)(ImGui::IsWindowFocused() ? PaletteIndex::CurrentLineFill : PaletteIndex::CurrentLineFillInactive)]);
+				drawList->AddRect(start, end, mPalette[(int)PaletteIndex::CurrentLineEdge], 1.0f);
 			}
 
 			// Render colorized text
@@ -1035,11 +1099,23 @@ void TextEditor::Render()
 				{
 					const ImVec2 newOffset(textScreenPos.x + bufferOffset.x, textScreenPos.y + bufferOffset.y);
 					drawList->AddText(newOffset, prevColor, mLineBuffer.c_str());
-					auto textSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, mLineBuffer.c_str(), nullptr, nullptr);
-					bufferOffset.x += textSize.x;
+					bufferOffset.x += ImGui::CalcTextSize(mLineBuffer.c_str()).x;
 					mLineBuffer.clear();
 				}
 				prevColor = color;
+
+				// highlight brackets
+				if (highlightBrackets) {
+					if ((lineNo == highlightStart.mLine && i == highlightStart.mColumn) ||
+						(lineNo == highlightEnd.mLine && i == highlightEnd.mColumn)) {
+						auto x = textScreenPos.x + bufferOffset.x + ImGui::CalcTextSize(mLineBuffer.c_str()).x;
+						std::string tmp(1, glyph.mChar);
+						auto w = ImGui::CalcTextSize(tmp.c_str()).x;
+						const ImVec2 p1(x, textScreenPos.y + bufferOffset.y);
+						const ImVec2 p2(x + w, p1.y + ImGui::GetFontSize());
+						drawList->AddRectFilled(p1, p2, mPalette[(int)PaletteIndex::BracketHighlighting]);
+					}
+				}
 
 				if (glyph.mChar == '\t')
 				{
@@ -1104,6 +1180,41 @@ void TextEditor::Render()
 				++columnNo;
 			}
 
+			if (mState.mCursorPosition.mLine == lineNo && ImGui::IsWindowFocused())
+			{
+				// Render the cursor
+				auto timeEnd = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+				auto elapsed = timeEnd - mStartTime;
+				if (elapsed > 400)
+				{
+					float width = 1.0f;
+					auto cindex = GetCharacterIndex(mState.mCursorPosition);
+					float cx = TextDistanceToLineStart(mState.mCursorPosition);
+
+					if (mOverwrite && cindex < (int)line.size())
+					{
+						auto c = line[cindex].mChar;
+						if (c == '\t')
+						{
+							auto x = (1.0f + std::floor((1.0f + cx) / (float(mTabSize) * spaceSize))) * (float(mTabSize) * spaceSize);
+							width = x - cx;
+						}
+						else
+						{
+							char buf2[2];
+							buf2[0] = line[cindex].mChar;
+							buf2[1] = '\0';
+							width = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf2).x;
+						}
+					}
+					ImVec2 cstart(textScreenPos.x + cx, lineStartScreenPos.y);
+					ImVec2 cend(textScreenPos.x + cx + width, lineStartScreenPos.y + mCharAdvance.y);
+					drawList->AddRectFilled(cstart, cend, mPalette[(int)PaletteIndex::Cursor]);
+					if (elapsed > 800)
+						mStartTime = timeEnd;
+				}
+			}
+
 			if (!mLineBuffer.empty())
 			{
 				const ImVec2 newOffset(textScreenPos.x + bufferOffset.x, textScreenPos.y + bufferOffset.y);
@@ -1115,7 +1226,7 @@ void TextEditor::Render()
 		}
 
 		// Draw a tooltip on known identifiers/preprocessor symbols
-		if (ImGui::IsMousePosValid())
+		if (ImGui::IsMousePosValid() && ImGui::IsWindowHovered())
 		{
 			auto mpos = ImGui::GetMousePos();
 			ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -1124,7 +1235,6 @@ void TextEditor::Render()
 			if (local.x >= mTextStart)
 			{
 				auto pos = ScreenPosToCoordinates(mpos);
-				printf("Coord(%d, %d)\n", pos.mLine, pos.mColumn);
 				auto id = GetWordAt(pos);
 				if (!id.empty())
 				{
@@ -1150,7 +1260,7 @@ void TextEditor::Render()
 		}
 	}
 
-
+	ImGui::SetCursorPos(ImVec2(0, 0));
 	ImGui::Dummy(ImVec2((longest + 2), mLines.size() * mCharAdvance.y));
 
 	if (mScrollToCursor)
@@ -1168,9 +1278,8 @@ void TextEditor::Render(const char* aTitle, const ImVec2& aSize, bool aBorder)
 	mCursorPositionChanged = false;
 
 	ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::ColorConvertU32ToFloat4(mPalette[(int)PaletteIndex::Background]));
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 	if (!mIgnoreImGuiChild)
-		ImGui::BeginChild(aTitle, aSize, aBorder, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoMove);
+		ImGui::BeginChild(aTitle, aSize, aBorder, ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNavInputs);
 
 	if (mHandleKeyboardInputs)
 	{
@@ -1190,7 +1299,6 @@ void TextEditor::Render(const char* aTitle, const ImVec2& aSize, bool aBorder)
 	if (!mIgnoreImGuiChild)
 		ImGui::EndChild();
 
-	ImGui::PopStyleVar();
 	ImGui::PopStyleColor();
 
 	mWithinRender = false;
@@ -1365,15 +1473,40 @@ void TextEditor::EnterCharacter(ImWchar aChar, bool aShift)
 
 	assert(!mLines.empty());
 
+	// auto brace completion
+	if (mInsertedBrace) {
+		if ((aChar == '}' && mInsertedBrace == '{') ||
+			(aChar == ')' && mInsertedBrace == '(') ||
+			(aChar == ']' && mInsertedBrace == '[')) {
+			mInsertedBrace = 0;
+			return;
+		}
+
+		mInsertedBrace = 0;
+	}
+
+	bool insertEmptyLineOnBrace = false;
+
 	if (aChar == '\n')
 	{
 		InsertLine(coord.mLine + 1);
 		auto& line = mLines[coord.mLine];
 		auto& newLine = mLines[coord.mLine + 1];
 
-		if (mLanguageDefinition.mAutoIndentation)
+		if (mLanguageDefinition.mAutoIndentation) {
 			for (size_t it = 0; it < line.size() && isascii(line[it].mChar) && isblank(line[it].mChar); ++it)
 				newLine.push_back(line[it]);
+
+			if (coord.mColumn > 0 && coord.mColumn < GetLineMaxColumn(coord.mLine)) {
+				auto brackets = GetText(
+					Coordinates(coord.mLine, coord.mColumn - 1),
+					Coordinates(coord.mLine, coord.mColumn + 1));
+
+				if (brackets == "{}" || brackets == "()" || brackets == "[]") {
+					insertEmptyLineOnBrace = true;
+				}
+			}
+		}
 
 		const size_t whitespaceSize = newLine.size();
 		auto cindex = GetCharacterIndex(coord);
@@ -1425,6 +1558,25 @@ void TextEditor::EnterCharacter(ImWchar aChar, bool aShift)
 
 	Colorize(coord.mLine - 1, 3);
 	EnsureCursorVisible();
+
+	// auto brace completion
+	if (mCompleteBraces) {
+		if (aChar == '{') EnterCharacter('}', false);
+		else if (aChar == '(') EnterCharacter(')', false);
+		else if (aChar == '[') EnterCharacter(']', false);
+
+		if (aChar == '{' || aChar == '(' || aChar == '[') {
+			mState.mCursorPosition.mColumn--;
+			mInsertedBrace = aChar;
+		}
+	}
+
+	if (insertEmptyLineOnBrace) {
+		auto pos = mState.mCursorPosition;
+		EnterCharacter('\n', true);
+		mState.mCursorPosition = pos;
+		EnterCharacter('\t', false);
+	}
 }
 
 void TextEditor::SetReadOnly(bool aValue)
@@ -2038,6 +2190,16 @@ bool TextEditor::CanRedo() const
 	return !mReadOnly && mUndoIndex < (int)mUndoBuffer.size();
 }
 
+int TextEditor::GetUndoCount() const
+{
+	return mUndoIndex;
+}
+
+int TextEditor::GetRedoCount() const
+{
+	return (int)mUndoBuffer.size() - mUndoIndex;
+}
+
 void TextEditor::Undo(int aSteps)
 {
 	while (CanUndo() && aSteps-- > 0)
@@ -2069,6 +2231,7 @@ const TextEditor::Palette & TextEditor::GetDarkPalette()
 			0xffe0e0e0, // Cursor
 			0x80a06020, // Selection
 			0x800020ff, // ErrorMarker
+			0xffaf00af, // BracketHighlighting
 			0x40f08000, // Breakpoint
 			0xff707000, // Line number
 			0x40000000, // Current line fill
@@ -2099,6 +2262,7 @@ const TextEditor::Palette & TextEditor::GetLightPalette()
 			0xff000000, // Cursor
 			0x40600000, // Selection
 			0xa00010ff, // ErrorMarker
+			0xffaf00af, // BracketHighlighting
 			0x80f08000, // Breakpoint
 			0xff505000, // Line number
 			0x40000000, // Current line fill
@@ -2114,7 +2278,7 @@ const TextEditor::Palette & TextEditor::GetRetroBluePalette()
 {
 	const static Palette p = { {
 			0xff00ffff,	// None
-			0xffffff00,	// Keyword	
+			0xffffff00,	// Keyword
 			0xff00ff00,	// Number
 			0xff808000,	// String
 			0xff808000, // Char literal
@@ -2129,6 +2293,7 @@ const TextEditor::Palette & TextEditor::GetRetroBluePalette()
 			0xff0080ff, // Cursor
 			0x80ffff00, // Selection
 			0xa00000ff, // ErrorMarker
+			0xffaf00af, // BracketHighlighting
 			0x80ff8000, // Breakpoint
 			0xff808000, // Line number
 			0x40000000, // Current line fill
@@ -2384,20 +2549,28 @@ void TextEditor::ColorizeInternal()
 						auto& startStr = mLanguageDefinition.mCommentStart;
 						auto& singleStartStr = mLanguageDefinition.mSingleLineComment;
 
-						if (!withinSingleLineComment && currentIndex + startStr.size() <= line.size() &&
+						if (startStr.size() != 0 && !withinSingleLineComment && currentIndex + startStr.size() <= line.size() &&
 							equals(startStr.begin(), startStr.end(), from, from + startStr.size(), pred))
 						{
 							commentStartLine = currentLine;
 							commentStartIndex = currentIndex;
 						}
-						else if (singleStartStr.size() > 0 &&
+						
+						if (singleStartStr.size() > 0 &&
 							currentIndex + singleStartStr.size() <= line.size() &&
 							equals(singleStartStr.begin(), singleStartStr.end(), from, from + singleStartStr.size(), pred))
 						{
-							withinSingleLineComment = true;
+							if (currentIndex + startStr.size() > line.size())
+							{
+								withinSingleLineComment = true;
+							}
+							else if (!equals(startStr.begin(), startStr.end(), from, from + startStr.size(), pred))
+							{
+								withinSingleLineComment = true;
+							}
 						}
 
-						inComment = inComment = (commentStartLine < currentLine || (commentStartLine == currentLine && commentStartIndex <= currentIndex));
+						inComment = (commentStartLine < currentLine || (commentStartLine == currentLine && commentStartIndex <= currentIndex));
 
 						line[currentIndex].mMultiLineComment = inComment;
 						line[currentIndex].mComment = withinSingleLineComment;

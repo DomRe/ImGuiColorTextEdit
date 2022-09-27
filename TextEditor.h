@@ -10,7 +10,7 @@
 #include <regex>
 #include "imgui.h"
 
-class TextEditor
+class IMGUI_API TextEditor
 {
 public:
 	enum class PaletteIndex
@@ -31,6 +31,7 @@ public:
 		Cursor,
 		Selection,
 		ErrorMarker,
+		BracketHighlighting,
 		Breakpoint,
 		LineNumber,
 		CurrentLineFill,
@@ -217,16 +218,17 @@ public:
 	bool IsColorizerEnabled() const { return mColorizerEnabled; }
 	void SetColorizerEnable(bool aValue);
 
+	Coordinates GetCorrectCursorPosition();
 	Coordinates GetCursorPosition() const { return GetActualCursorCoordinates(); }
 	void SetCursorPosition(const Coordinates& aPosition);
 
-	inline void SetHandleMouseInputs    (bool aValue){ mHandleMouseInputs    = aValue;}
-	inline bool IsHandleMouseInputsEnabled() const { return mHandleKeyboardInputs; }
+	inline void SetHandleMouseInputs(bool aValue){ mHandleMouseInputs = aValue;}
+	inline bool IsHandleMouseInputsEnabled() const { return mHandleMouseInputs; }
 
 	inline void SetHandleKeyboardInputs (bool aValue){ mHandleKeyboardInputs = aValue;}
 	inline bool IsHandleKeyboardInputsEnabled() const { return mHandleKeyboardInputs; }
 
-	inline void SetImGuiChildIgnored    (bool aValue){ mIgnoreImGuiChild     = aValue;}
+	inline void SetImGuiChildIgnored(bool aValue){ mIgnoreImGuiChild = aValue;}
 	inline bool IsImGuiChildIgnored() const { return mIgnoreImGuiChild; }
 
 	inline void SetShowWhitespaces(bool aValue) { mShowWhitespaces = aValue; }
@@ -264,12 +266,17 @@ public:
 
 	bool CanUndo() const;
 	bool CanRedo() const;
+	int GetUndoCount() const;
+	int GetRedoCount() const;
 	void Undo(int aSteps = 1);
 	void Redo(int aSteps = 1);
 
 	static const Palette& GetDarkPalette();
 	static const Palette& GetLightPalette();
 	static const Palette& GetRetroBluePalette();
+
+	inline void SetCompleteBraces(bool s) { mCompleteBraces = s; }
+	inline void SetHiglightBrackets(bool s) { mHighlightBrackets = s; }
 
 private:
 	typedef std::vector<std::pair<std::regex, PaletteIndex>> RegexList;
@@ -392,4 +399,8 @@ private:
 	uint64_t mStartTime;
 
 	float mLastClick;
+
+	bool mCompleteBraces;
+	ImWchar mInsertedBrace;
+	bool mHighlightBrackets;
 };
